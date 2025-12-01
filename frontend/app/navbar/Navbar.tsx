@@ -18,8 +18,8 @@ export default function Navbar() {
               </svg>
             </div>
             <div>
-              <div className="text-xl font-bold text-gray-900">SIBI</div>
-              <div className="text-xs text-gray-600">Detector</div>
+              <div className="text-xl font-bold text-gray-900">TemanIsyarat</div>
+              {/* <div className="text-xs text-gray-600">Detector</div> */}
             </div>
           </Link>
 

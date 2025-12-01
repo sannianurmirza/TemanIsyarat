@@ -22,16 +22,16 @@ export default function BerandaContent() {
           </div>
 
           {/* Main Heading */}
-          <h1 className="text-5xl md:text-7xl font-bold text-gray-900 mb-6 leading-tight">
+          <h1 className="text-3xl md:text-5xl font-bold text-gray-900 mb-4 leading-tight">
             Deteksi Bahasa Isyarat Indonesia
           </h1>
           <h2 className="text-5xl md:text-7xl font-bold mb-8 leading-tight">
-            <span className="text-teal-500">Dengan</span> <span className="text-orange-500">AI</span>
+            <span className="text-teal-500">Dengan</span> <span className="text-orange-500">CNN</span>
           </h2>
 
           {/* Description */}
           <p className="text-lg md:text-xl text-gray-600 mb-10 max-w-3xl mx-auto leading-relaxed">
-            SIBI Detector menggunakan teknologi machine learning canggih untuk mengenali dan menerjemahkan Bahasa
+            TemanIsyarat menggunakan teknologi machine learning canggih untuk mengenali dan menerjemahkan Bahasa
             Isyarat Indonesia secara real-time.
           </p>
 
@@ -39,16 +39,16 @@ export default function BerandaContent() {
           <div className="flex flex-wrap items-center justify-center gap-4">
             <Link
               href="/deteksi"
-              className="px-8 py-4 bg-teal-500 hover:bg-teal-600 text-white font-semibold rounded-xl shadow-lg shadow-teal-500/30 transition-all hover:scale-105 flex items-center gap-2"
+              className="px-12 py-5 bg-teal-500 hover:bg-teal-600 text-white font-semibold rounded-xl shadow-lg shadow-teal-500/30 transition-all hover:scale-105 flex items-center gap-2"
             >
               Mulai Deteksi
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
               </svg>
             </Link>
-            <button className="px-8 py-4 bg-white border-2 border-gray-200 hover:border-gray-300 text-gray-700 font-semibold rounded-xl transition-all hover:scale-105">
+            {/* <button className="px-8 py-4 bg-white border-2 border-gray-200 hover:border-gray-300 text-gray-700 font-semibold rounded-xl transition-all hover:scale-105">
               Pelajari Lebih Lanjut
-            </button>
+            </button> */}
           </div>
         </div>
       </section>
