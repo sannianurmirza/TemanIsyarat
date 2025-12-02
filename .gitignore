@@ -1,0 +1,17 @@
+# Virtual environments
+venv/
+env/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+
+# DLLs
+*.dll
+
+# Specific folders
+/backend/app/routes/__pycache__/
+/backend/app/utils/__pycache__/
