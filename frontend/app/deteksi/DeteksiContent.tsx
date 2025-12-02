@@ -1,9 +1,22 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useRef, useEffect } from "react"
-import type { DetectionResult } from "@/types/DetectionResult" // Adjust the import path as necessary
+
+type DetectionMode = "camera" | "upload"
+type ModelType = "letters" | "words"
+
+interface DetectionResult {
+  id: string
+  label: string
+  confidence: number
+  timestamp: string
+  imageData: string
+  allPredictions?: {
+    letter: string
+    confidence: number
+  }[]
+}
 
 export default function DeteksiContent() {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -11,9 +24,10 @@ export default function DeteksiContent() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const detectionIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
-  const [detectionMode, setDetectionMode] = useState<"camera" | "upload">("camera")
-  const [uploadedImage, setUploadedImage] = useState<string | null>(null)
+  const [detectionMode, setDetectionMode] = useState<DetectionMode>("upload")
+  const [modelType, setModelType] = useState<ModelType>("letters")
 
+  const [uploadedImage, setUploadedImage] = useState<string | null>(null)
   const [isCameraActive, setIsCameraActive] = useState(false)
   const [isRealTimeDetection, setIsRealTimeDetection] = useState(false)
   const [detectionHistory, setDetectionHistory] = useState<DetectionResult[]>([])
@@ -23,8 +37,176 @@ export default function DeteksiContent() {
   const [error, setError] = useState<string | null>(null)
   const [useMockMode, setUseMockMode] = useState(false)
   const [autoMockMode, setAutoMockMode] = useState(false)
+  const [backendStatus, setBackendStatus] = useState<'unknown' | 'online' | 'offline'>('unknown')
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+
+  // Log API URL saat component mount
+  useEffect(() => {
+    console.log("🌐 API_URL configured:", API_URL)
+    console.log("🔧 Environment:", process.env.NODE_ENV)
+    checkBackendHealth()
+  }, [])
+
+  // Check backend health
+  const checkBackendHealth = async () => {
+    try {
+      console.log("🔍 Checking backend health at:", API_URL)
+      const response = await fetch(`${API_URL}/health`, {
+        method: 'GET',
+        mode: 'cors',
+        cache: 'no-cache'
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        console.log("✅ Backend is online:", data)
+        setBackendStatus('online')
+        setAutoMockMode(false)
+        setError(null)
+      } else {
+        console.log("⚠️ Backend responded but not healthy:", response.status)
+        setBackendStatus('offline')
+      }
+    } catch (err) {
+      console.error("❌ Backend health check failed:", err)
+      setBackendStatus('offline')
+    }
+  }
+
+  // =====================================================================
+  //  UTIL: LABEL & MOCK
+  // =====================================================================
+
+  const formatMainLabel = (prediction: string) => {
+    if (modelType === "letters") return `Huruf ${prediction}`
+    return `Kata ${prediction}`
+  }
+
+  const getMockDetection = () => {
+    const mockLetters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z']
+    const mockWords = [
+      'Adik_P', 'Air', 'Aku', 'Anda', 'Anjing', 'Awalan', 'Awan', 'Ayah', 'Ayam', 'Baca',
+      'Bangun', 'Baru', 'Berat', 'Besar', 'Burung', 'Cepat', 'Cerah', 'Danau', 'Dengan', 'Doa',
+      'Foto', 'Gelap', 'Gunung', 'Guru', 'Hari', 'Hujan', 'Hutan', 'Ibu', 'Ini',
+      'Itu', 'Jam', 'Jendela', 'Jumat', 'Kakak', 'Kamis', 'Kamu', 'Kecil', 'Kelinci', 'Kenyang',
+      'Kereta', 'Kerja', 'Kertas', 'Kipas', 'Kita', 'Kolam', 'Kucing', 'Kuda', 'Kursi', 'Lama',
+      'Lambat', 'Lapar', 'Lihat', 'Mahal', 'Main', 'Makan', 'Malam', 'Masak', 'Matahari', 'Meja',
+      'Mendung', 'Mereka', 'Minggu', 'Minum', 'Mobil', 'Motor', 'Murah', 'Musuh', 'Pagi', 'Panjang',
+      'Papan', 'Pendek', 'Pensil', 'Pesawat', 'Pintu', 'Polisi', 'Pulpen', 'Rabu', 'Ringan', 'Roti',
+      'Rumah', 'Rumput', 'Sabtu', 'Sama', 'Sapi', 'Sawah', 'Saya', 'Sedang', 'Selasa', 'Senin',
+      'Senyum', 'Sore', 'Suasana', 'Sungai', 'Takut', 'Telepon', 'Teman', 'Tentara', 'Terang', 'Tugas',
+      'Tulis', 'Tunjuk', 'Ular'
+    ]
+
+    const pool = modelType === "letters" ? mockLetters : mockWords
+    const randomMain = pool[Math.floor(Math.random() * pool.length)]
+    const c = 75 + Math.random() * 20 // 75-95 (dalam persentase)
+
+    return {
+      prediction: randomMain,
+      confidence: c, // Tetap dalam persentase untuk konsistensi dengan backend
+      all_predictions: [
+        { letter: randomMain, confidence: c },
+        { letter: pool[Math.floor(Math.random() * pool.length)], confidence: c - 15 },
+        { letter: pool[Math.floor(Math.random() * pool.length)], confidence: c - 30 },
+      ],
+    }
+  }
+
+  const buildDetectionResult = (
+    prediction: string,
+    confidence: number,
+    imageData: string,
+    allPredictions?: { letter: string; confidence: number }[],
+  ): DetectionResult => {
+    // Backend mengirim confidence dalam persentase (0-100)
+    // Kita perlu convert ke desimal (0-1) untuk konsistensi internal
+    const confidenceDecimal = confidence > 1 ? confidence / 100 : confidence
+    
+    // Normalize allPredictions juga jika ada
+    const normalizedPredictions = allPredictions?.map(pred => ({
+      letter: pred.letter,
+      confidence: pred.confidence > 1 ? pred.confidence / 100 : pred.confidence
+    }))
+    
+    return {
+      id: Date.now().toString(),
+      label: formatMainLabel(prediction),
+      confidence: confidenceDecimal,
+      timestamp: new Date().toLocaleString("id-ID"),
+      imageData,
+      allPredictions: normalizedPredictions,
+    }
+  }
+
+  // =====================================================================
+  //  BACKEND CALL
+  // =====================================================================
+
+  const tryDetectWithBackend = async (blob: Blob): Promise<any | null> => {
+    try {
+      const formData = new FormData()
+      formData.append("file", blob, "capture.jpg")
+
+      const endpoint = `${API_URL}/api/detect/${modelType}`
+      console.log("=".repeat(60))
+      console.log("🔵 [FRONTEND] Calling backend:", endpoint)
+      console.log("🔵 [FRONTEND] Model Type:", modelType)
+      console.log("🔵 [FRONTEND] Blob size:", blob.size, "bytes")
+      console.log("🔵 [FRONTEND] Blob type:", blob.type)
+
+      const response = await fetch(endpoint, {
+        method: "POST",
+        body: formData,
+        mode: 'cors', // Explicitly set CORS mode
+        credentials: 'omit', // Don't send credentials
+      })
+
+      console.log("🔵 [FRONTEND] Response status:", response.status)
+      console.log("🔵 [FRONTEND] Response ok:", response.ok)
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error("❌ [FRONTEND] Response error:", errorText)
+        throw new Error(`Backend error: ${response.status} - ${errorText}`)
+      }
+
+      const result = await response.json()
+      console.log("✅ [FRONTEND] Backend response:", JSON.stringify(result, null, 2))
+      console.log("✅ [FRONTEND] Prediction:", result.prediction)
+      console.log("✅ [FRONTEND] Confidence:", result.confidence)
+      console.log("=".repeat(60))
+      
+      setAutoMockMode(false)
+      setError(null) // Clear any previous errors
+      return result
+    } catch (err: any) {
+      console.error("❌ [FRONTEND] Backend call failed:", err)
+      console.error("❌ [FRONTEND] Error name:", err.name)
+      console.error("❌ [FRONTEND] Error message:", err.message)
+      
+      // Set informative error message based on error type
+      if (err.message === 'Failed to fetch') {
+        setError(`❌ Tidak dapat terhubung ke backend di ${API_URL}. Pastikan:
+1. Backend running di ${API_URL}
+2. CORS enabled di backend
+3. Tidak ada firewall blocking`)
+        console.log("💡 [FRONTEND] Hint: Check if backend is running with: curl " + API_URL + "/health")
+      } else {
+        setError(`❌ Backend error: ${err.message}`)
+      }
+      
+      console.log("⚠️ [FRONTEND] Switching to mock mode")
+      console.log("=".repeat(60))
+      setAutoMockMode(true)
+      return null
+    }
+  }
+
+  // =====================================================================
+  //  CAMERA HANDLING
+  // =====================================================================
 
   const startCamera = async () => {
     try {
@@ -37,8 +219,8 @@ export default function DeteksiContent() {
         setStream(mediaStream)
         setIsCameraActive(true)
       }
-    } catch (error) {
-      console.error("Error accessing camera:", error)
+    } catch (err) {
+      console.error("Error accessing camera:", err)
       alert("Tidak dapat mengakses kamera. Pastikan izin kamera telah diberikan.")
     }
   }
@@ -46,10 +228,14 @@ export default function DeteksiContent() {
   const stopCamera = () => {
     if (stream) {
       stream.getTracks().forEach((track) => track.stop())
-      setStream(null)
-      setIsCameraActive(false)
     }
+    setStream(null)
+    setIsCameraActive(false)
   }
+
+  // =====================================================================
+  //  FILE UPLOAD HANDLER
+  // =====================================================================
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -63,233 +249,184 @@ export default function DeteksiContent() {
     const reader = new FileReader()
     reader.onload = (event) => {
       setUploadedImage(event.target?.result as string)
+      setCurrentDetection(null)
     }
     reader.readAsDataURL(file)
   }
 
-  const getMockDetection = () => {
-    const mockLetters = ["A", "B", "C", "D", "E", "I", "L", "M", "N", "O", "P", "R", "S", "T", "U", "V", "W", "Y"]
-    const randomLetter = mockLetters[Math.floor(Math.random() * mockLetters.length)]
-    const confidence = 75 + Math.random() * 20 // 75-95%
-
-    return {
-      prediction: randomLetter,
-      confidence: confidence,
-      all_predictions: [
-        { letter: randomLetter, confidence: confidence },
-        { letter: mockLetters[Math.floor(Math.random() * mockLetters.length)], confidence: confidence - 15 },
-        { letter: mockLetters[Math.floor(Math.random() * mockLetters.length)], confidence: confidence - 30 },
-      ],
-    }
-  }
-
-  const tryDetectWithBackend = async (blob: Blob, isRealTime: boolean): Promise<any | null> => {
-    try {
-      const formData = new FormData()
-      formData.append("file", blob, "capture.jpg")
-
-      console.log("[v0] Trying to reach backend at:", `${API_URL}/api/detect`)
-
-      const response = await fetch(`${API_URL}/api/detect`, {
-        method: "POST",
-        body: formData,
-      })
-
-      if (!response.ok) {
-        throw new Error(`Backend error: ${response.status}`)
-      }
-
-      const result = await response.json()
-      console.log("[v0] Backend detection successful:", result)
-      setAutoMockMode(false)
-      return result
-    } catch (err) {
-      console.warn("[v0] Backend failed, switching to mock mode:", err)
-      setAutoMockMode(true)
-      return null
-    }
-  }
+  // =====================================================================
+  //  DETEKSI DARI UPLOAD
+  // =====================================================================
 
   const detectFromUpload = async () => {
     if (!uploadedImage) return
 
     setIsDetecting(true)
     setError(null)
+    
+    // IMPORTANT: Reset autoMockMode setiap kali deteksi baru
+    // Beri backend kesempatan untuk dicoba lagi
+    if (!useMockMode) {
+      setAutoMockMode(false)
+    }
 
-    console.log("[v0] Starting detection from upload")
+    console.log("🟢 [UPLOAD] Starting detection...")
+    console.log("🟢 [UPLOAD] Use Mock Mode:", useMockMode)
+    console.log("🟢 [UPLOAD] Auto Mock Mode (before):", autoMockMode)
 
     try {
-      if (useMockMode || autoMockMode) {
-        console.log("[v0] Using mock mode for upload")
-        await new Promise((resolve) => setTimeout(resolve, 1000)) // Simulate API delay
-        const result = getMockDetection()
+      const imgResp = await fetch(uploadedImage)
+      const blob = await imgResp.blob()
+      console.log("🟢 [UPLOAD] Image blob ready, size:", blob.size)
 
-        const detectionResult: DetectionResult = {
-          id: Date.now().toString(),
-          label: `Huruf ${result.prediction}`,
-          confidence: result.confidence / 100,
-          timestamp: new Date().toLocaleString("id-ID"),
-          imageData: uploadedImage,
-          allPredictions: result.all_predictions,
+      let result: any
+      
+      if (useMockMode) {
+        console.log("⚠️ [UPLOAD] Using MANUAL MOCK mode (user enabled)")
+        result = getMockDetection()
+        console.log("⚠️ [UPLOAD] Mock result:", result)
+      } else {
+        console.log("🔵 [UPLOAD] Calling REAL backend...")
+        const backendResult = await tryDetectWithBackend(blob)
+        
+        if (backendResult) {
+          console.log("✅ [UPLOAD] Backend returned result:", backendResult)
+          result = backendResult
+        } else {
+          console.log("⚠️ [UPLOAD] Backend failed, using AUTO mock")
+          result = getMockDetection()
         }
-
-        setDetectionHistory((prev) => [detectionResult, ...prev].slice(0, 10))
-        setCurrentDetection(`${result.prediction} (${result.confidence.toFixed(0)}%)`)
-        setIsDetecting(false)
-        return
       }
 
-      const response = await fetch(uploadedImage)
-      const blob = await response.blob()
+      console.log("📊 [UPLOAD] Final result to display:")
+      console.log("   - Prediction:", result.prediction)
+      console.log("   - Confidence:", result.confidence)
+      console.log("   - All predictions:", result.all_predictions)
 
-      console.log("[v0] Blob size:", blob.size, "bytes")
+      const det = buildDetectionResult(
+        result.prediction,
+        result.confidence,
+        uploadedImage,
+        result.all_predictions,
+      )
 
-      const result = await tryDetectWithBackend(blob, false)
+      console.log("📊 [UPLOAD] Detection result built:", det)
 
-      if (!result) {
-        console.log("[v0] Backend failed, using mock result")
-        const mockResult = getMockDetection()
-        const detectionResult: DetectionResult = {
-          id: Date.now().toString(),
-          label: `Huruf ${mockResult.prediction}`,
-          confidence: mockResult.confidence / 100,
-          timestamp: new Date().toLocaleString("id-ID"),
-          imageData: uploadedImage,
-          allPredictions: mockResult.all_predictions,
-        }
-
-        setDetectionHistory((prev) => [detectionResult, ...prev].slice(0, 10))
-        setCurrentDetection(`${mockResult.prediction} (${mockResult.confidence.toFixed(0)}%)`)
-        setIsDetecting(false)
-        return
-      }
-
-      const detectionResult: DetectionResult = {
-        id: Date.now().toString(),
-        label: `Huruf ${result.prediction}`,
-        confidence: result.confidence / 100,
-        timestamp: new Date().toLocaleString("id-ID"),
-        imageData: uploadedImage,
-        allPredictions: result.all_predictions,
-      }
-
-      setDetectionHistory((prev) => [detectionResult, ...prev].slice(0, 10))
+      setDetectionHistory((prev) => [det, ...prev].slice(0, 10))
       setCurrentDetection(`${result.prediction} (${result.confidence.toFixed(0)}%)`)
-      setIsDetecting(false)
+      
+      console.log("✅ [UPLOAD] Detection completed successfully")
     } catch (err) {
-      console.error("[v0] Error detecting from upload:", err)
+      console.error("❌ [UPLOAD] Error:", err)
       setError("Deteksi gagal. Menggunakan mock mode untuk testing...")
       setAutoMockMode(true)
 
-      const mockResult = getMockDetection()
-      const detectionResult: DetectionResult = {
-        id: Date.now().toString(),
-        label: `Huruf ${mockResult.prediction}`,
-        confidence: mockResult.confidence / 100,
-        timestamp: new Date().toLocaleString("id-ID"),
-        imageData: uploadedImage,
-        allPredictions: mockResult.all_predictions,
-      }
+      const mock = getMockDetection()
+      const det = buildDetectionResult(mock.prediction, mock.confidence, uploadedImage, mock.all_predictions)
 
-      setDetectionHistory((prev) => [detectionResult, ...prev].slice(0, 10))
-      setCurrentDetection(`${mockResult.prediction} (${mockResult.confidence.toFixed(0)}%)`)
+      setDetectionHistory((prev) => [det, ...prev].slice(0, 10))
+      setCurrentDetection(`${mock.prediction} (${mock.confidence.toFixed(0)}%)`)
+    } finally {
       setIsDetecting(false)
     }
   }
+
+  // =====================================================================
+  //  CAPTURE & DETECT (CAMERA)
+  // =====================================================================
 
   const captureAndDetect = async (isRealTime = false) => {
     if (!videoRef.current || !canvasRef.current) return
 
     if (isRealTime && isDetecting) {
-      console.log("[v0] Skipping detection - already in progress")
+      // Hindari overlap call saat realtime
       return
     }
-
-    console.log("[v0] Starting capture and detect, isRealTime:", isRealTime)
 
     setIsDetecting(true)
     if (!isRealTime) {
       setError(null)
+      // Reset autoMockMode untuk non-realtime capture
+      if (!useMockMode) {
+        setAutoMockMode(false)
+      }
     }
 
     const canvas = canvasRef.current
     const video = videoRef.current
     const context = canvas.getContext("2d")
 
-    if (context) {
-      canvas.width = video.videoWidth
-      canvas.height = video.videoHeight
-
-      context.save()
-      context.scale(-1, 1)
-      context.drawImage(video, -canvas.width, 0, canvas.width, canvas.height)
-      context.restore()
-
-      canvas.toBlob(async (blob) => {
-        if (!blob) {
-          console.error("[v0] Failed to create blob from canvas")
-          if (!isRealTime) {
-            setError("Gagal mengambil gambar dari kamera")
-          }
-          setIsDetecting(false)
-          return
-        }
-
-        try {
-          let result = await tryDetectWithBackend(blob, isRealTime)
-
-          if (!result) {
-            result = getMockDetection()
-          }
-
-          const imageData = canvas.toDataURL("image/jpeg")
-
-          setCurrentDetection(`${result.prediction} (${result.confidence.toFixed(0)}%)`)
-
-          if (!isRealTime) {
-            const detectionResult: DetectionResult = {
-              id: Date.now().toString(),
-              label: `Huruf ${result.prediction}`,
-              confidence: result.confidence / 100,
-              timestamp: new Date().toLocaleString("id-ID"),
-              imageData: imageData,
-              allPredictions: result.all_predictions,
-            }
-
-            setDetectionHistory((prev) => [detectionResult, ...prev].slice(0, 10))
-          }
-
-          setIsDetecting(false)
-        } catch (err) {
-          console.error("[v0] Error detecting:", err)
-          if (!isRealTime) {
-            setError("Deteksi gagal. Menggunakan mock mode...")
-            setAutoMockMode(true)
-          } else {
-            console.error("[v0] Real-time detection error (silent):", err)
-          }
-          setIsDetecting(false)
-        }
-      }, "image/jpeg")
+    if (!context) {
+      if (!isRealTime) setError("Gagal mengakses canvas")
+      setIsDetecting(false)
+      return
     }
+
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+
+    context.save()
+    context.scale(-1, 1)
+    context.drawImage(video, -canvas.width, 0, canvas.width, canvas.height)
+    context.restore()
+
+    canvas.toBlob(async (blob) => {
+      if (!blob) {
+        if (!isRealTime) setError("Gagal mengambil gambar dari kamera")
+        setIsDetecting(false)
+        return
+      }
+
+      try {
+        let result: any
+        if (useMockMode) {
+          console.log("⚠️ [CAMERA] Using MANUAL MOCK mode")
+          result = getMockDetection()
+        } else {
+          console.log("🔵 [CAMERA] Calling REAL backend...")
+          const backendResult = await tryDetectWithBackend(blob)
+          result = backendResult || getMockDetection()
+        }
+
+        const imageData = canvas.toDataURL("image/jpeg")
+        setCurrentDetection(`${result.prediction} (${result.confidence.toFixed(0)}%)`)
+
+        if (!isRealTime) {
+          const det = buildDetectionResult(
+            result.prediction,
+            result.confidence,
+            imageData,
+            result.all_predictions,
+          )
+          setDetectionHistory((prev) => [det, ...prev].slice(0, 10))
+        }
+      } catch (err) {
+        console.error("[camera] Error:", err)
+        if (!isRealTime) {
+          setError("Deteksi gagal. Menggunakan mock mode...")
+          setAutoMockMode(true)
+        }
+      } finally {
+        setIsDetecting(false)
+      }
+    }, "image/jpeg")
   }
 
   const startRealTimeDetection = () => {
-    console.log("[v0] Starting real-time detection")
+    if (!isCameraActive) return
     setIsRealTimeDetection(true)
     setCurrentDetection(null)
     setError(null)
 
+    // deteksi awal
     captureAndDetect(true)
 
     detectionIntervalRef.current = setInterval(() => {
-      console.log("[v0] Running periodic detection")
       captureAndDetect(true)
     }, 1500)
   }
 
   const stopRealTimeDetection = () => {
-    console.log("[v0] Stopping real-time detection")
     setIsRealTimeDetection(false)
     setCurrentDetection(null)
 
@@ -299,47 +436,48 @@ export default function DeteksiContent() {
     }
   }
 
-  const saveCurrentDetection = async () => {
+  const saveCurrentDetection = () => {
     if (!videoRef.current || !canvasRef.current || !currentDetection) return
 
     const canvas = canvasRef.current
     const video = videoRef.current
     const context = canvas.getContext("2d")
 
-    if (context) {
-      canvas.width = video.videoWidth
-      canvas.height = video.videoHeight
+    if (!context) return
 
-      context.save()
-      context.scale(-1, 1)
-      context.drawImage(video, -canvas.width, 0, canvas.width, canvas.height)
-      context.restore()
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
 
-      const imageData = canvas.toDataURL("image/jpeg")
+    context.save()
+    context.scale(-1, 1)
+    context.drawImage(video, -canvas.width, 0, canvas.width, canvas.height)
+    context.restore()
 
-      const [label, confidenceStr] = currentDetection.split(" (")
-      const confidence = Number.parseInt(confidenceStr.replace("%)", "")) / 100
+    const imageData = canvas.toDataURL("image/jpeg")
 
-      const detectionResult: DetectionResult = {
-        id: Date.now().toString(),
-        label: `Huruf ${label}`,
-        confidence: confidence,
-        timestamp: new Date().toLocaleString("id-ID"),
-        imageData: imageData,
-      }
+    const [rawLabel, confidenceStr] = currentDetection.split(" (")
+    const confidencePercentage = Number.parseInt(confidenceStr.replace("%)", ""))
+    const confidence = confidencePercentage / 100 // Convert ke desimal
 
-      setDetectionHistory((prev) => [detectionResult, ...prev].slice(0, 10))
+    const result: DetectionResult = {
+      id: Date.now().toString(),
+      label: formatMainLabel(rawLabel),
+      confidence,
+      timestamp: new Date().toLocaleString("id-ID"),
+      imageData,
     }
+
+    setDetectionHistory((prev) => [result, ...prev].slice(0, 10))
   }
+
+  // =====================================================================
+  //  EFFECTS
+  // =====================================================================
 
   useEffect(() => {
     return () => {
-      if (detectionIntervalRef.current) {
-        clearInterval(detectionIntervalRef.current)
-      }
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop())
-      }
+      if (detectionIntervalRef.current) clearInterval(detectionIntervalRef.current)
+      if (stream) stream.getTracks().forEach((track) => track.stop())
     }
   }, [stream])
 
@@ -356,14 +494,25 @@ export default function DeteksiContent() {
     }
   }, [isCameraActive])
 
+  // Jika modelType berubah, reset currentDetection (agar label lama tidak misleading)
+  useEffect(() => {
+    setCurrentDetection(null)
+  }, [modelType])
+
+  // =====================================================================
+  //  UI
+  // =====================================================================
+
   return (
     <div className="min-h-screen bg-gray-50 pt-20 pb-12 px-4">
       <div className="max-w-7xl mx-auto">
+        {/* HEADER */}
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-gray-900 mb-3">Deteksi Bahasa Isyarat SIBI</h1>
-          <p className="text-gray-600">Pilih metode deteksi: kamera real-time atau upload file gambar</p>
+          <p className="text-gray-600">Pilih metode deteksi dan jenis model (huruf atau kata)</p>
 
-          <div className="mt-6 flex items-center justify-center gap-4 flex-wrap mb-6">
+          {/* MODE SELECTION: CAMERA vs UPLOAD */}
+          <div className="mt-6 flex items-center justify-center gap-4 flex-wrap mb-3">
             <div className="flex items-center gap-2 bg-white rounded-full p-1 shadow-md border border-gray-200">
               <button
                 onClick={() => {
@@ -408,60 +557,148 @@ export default function DeteksiContent() {
             </div>
           </div>
 
+          {/* MODEL SELECTION: LETTERS vs WORDS */}
+          <div className="flex items-center justify-center gap-4 flex-wrap mb-4">
+            <div className="flex items-center gap-2 bg-white rounded-full p-1 shadow-sm border border-gray-200">
+              <button
+                onClick={() => setModelType("letters")}
+                className={`px-5 py-1.5 rounded-full text-sm font-medium transition-all ${
+                  modelType === "letters"
+                    ? "bg-indigo-500 text-white shadow"
+                    : "text-gray-700 hover:text-gray-900"
+                }`}
+              >
+                Huruf (A–Z)
+              </button>
+              <button
+                onClick={() => setModelType("words")}
+                className={`px-5 py-1.5 rounded-full text-sm font-medium transition-all ${
+                  modelType === "words"
+                    ? "bg-indigo-500 text-white shadow"
+                    : "text-gray-700 hover:text-gray-900"
+                }`}
+              >
+                Kata (102 Kata)
+              </button>
+            </div>
+          </div>
+
+          {/* MOCK MODE SWITCH */}
           <div className="flex items-center justify-center gap-4 flex-wrap">
+            {/* Backend Status Indicator */}
+            <div className={`flex items-center gap-2 px-4 py-2 rounded-lg border ${
+              backendStatus === 'online' ? 'bg-green-50 border-green-200' :
+              backendStatus === 'offline' ? 'bg-red-50 border-red-200' :
+              'bg-gray-50 border-gray-200'
+            }`}>
+              <div className={`w-2 h-2 rounded-full ${
+                backendStatus === 'online' ? 'bg-green-500' :
+                backendStatus === 'offline' ? 'bg-red-500' :
+                'bg-gray-400'
+              } ${backendStatus === 'online' ? 'animate-pulse' : ''}`} />
+              <span className={`text-xs font-medium ${
+                backendStatus === 'online' ? 'text-green-700' :
+                backendStatus === 'offline' ? 'text-red-700' :
+                'text-gray-700'
+              }`}>
+                Backend: {backendStatus === 'online' ? 'Online' : backendStatus === 'offline' ? 'Offline' : 'Checking...'}
+              </span>
+              <button
+                onClick={checkBackendHealth}
+                className="text-xs text-blue-600 hover:text-blue-800 font-medium ml-1"
+                title="Check backend health"
+              >
+                ↻
+              </button>
+            </div>
+
             <label className="flex items-center gap-2 cursor-pointer bg-white px-4 py-2 rounded-lg shadow-sm border border-gray-200">
               <input
                 type="checkbox"
                 checked={useMockMode}
-                onChange={(e) => setUseMockMode(e.target.checked)}
+                onChange={(e) => {
+                  setUseMockMode(e.target.checked)
+                  console.log("🔧 Manual Mock Mode:", e.target.checked ? "ENABLED" : "DISABLED")
+                }}
                 className="w-4 h-4 text-teal-500 rounded"
               />
-              <span className="text-sm text-gray-700">Manual Mock Mode</span>
+              <span className="text-sm text-gray-700">Manual Mock Mode (Demo)</span>
             </label>
             {autoMockMode && (
               <div className="bg-yellow-50 px-4 py-2 rounded-lg border border-yellow-200 flex items-center gap-2">
-                <span className="text-yellow-700 text-sm font-medium">Backend tidak tersedia - Mode Demo Aktif</span>
+                <svg className="w-4 h-4 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <span className="text-yellow-700 text-sm font-medium">Backend gagal sebelumnya - Mode Demo Aktif</span>
                 <button
-                  onClick={() => setAutoMockMode(false)}
-                  className="text-yellow-600 hover:text-yellow-800 text-xs font-medium"
+                  onClick={() => {
+                    setAutoMockMode(false)
+                    setError(null)
+                    checkBackendHealth()
+                    console.log("🔄 Auto Mock Mode DISABLED - Will try real backend on next detection")
+                  }}
+                  className="bg-yellow-600 hover:bg-yellow-700 text-white text-xs font-medium px-3 py-1 rounded transition-colors"
                 >
-                  Coba Lagi
+                  Reset & Coba Backend Lagi
                 </button>
+              </div>
+            )}
+            {!useMockMode && !autoMockMode && backendStatus === 'online' && (
+              <div className="bg-green-50 px-4 py-2 rounded-lg border border-green-200 flex items-center gap-2">
+                <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span className="text-green-700 text-sm font-medium">Backend Aktif - Mode Real Detection</span>
               </div>
             )}
           </div>
         </div>
 
+        {/* ERROR ALERT */}
         {error && (
           <div className="mb-6 max-w-7xl mx-auto">
-            <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
-              <svg
-                className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              <div className="flex-1">
-                <p className="text-sm text-red-800 font-medium">Info</p>
-                <p className="text-sm text-red-700">{error}</p>
-              </div>
-              <button onClick={() => setError(null)} className="text-red-600 hover:text-red-800">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+              <div className="flex items-start gap-3">
+                <svg
+                  className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
                 </svg>
-              </button>
+                <div className="flex-1">
+                  <p className="text-sm text-red-800 font-medium mb-2">Error Koneksi Backend</p>
+                  <pre className="text-xs text-red-700 whitespace-pre-wrap font-mono bg-red-100 p-2 rounded">{error}</pre>
+                  
+                  <div className="mt-3 p-3 bg-white rounded border border-red-200">
+                    <p className="text-xs font-semibold text-red-900 mb-2">🔧 Troubleshooting:</p>
+                    <ul className="text-xs text-red-800 space-y-1 list-disc list-inside">
+                      <li>Pastikan backend FastAPI running di <code className="bg-red-100 px-1 rounded">{API_URL}</code></li>
+                      <li>Test backend: buka <a href={`${API_URL}/docs`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{API_URL}/docs</a> di browser</li>
+                      <li>Atau test via terminal: <code className="bg-red-100 px-1 rounded">curl {API_URL}/health</code></li>
+                      <li>Jika backend di port lain, set <code className="bg-red-100 px-1 rounded">NEXT_PUBLIC_API_URL</code> di .env.local</li>
+                    </ul>
+                  </div>
+                </div>
+                <button onClick={() => setError(null)} className="text-red-600 hover:text-red-800">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
         )}
 
+        {/* MAIN LAYOUT */}
         <div className="grid lg:grid-cols-3 gap-6">
+          {/* LEFT: CAMERA / UPLOAD */}
           <div className="lg:col-span-2">
             <div className="bg-white rounded-2xl shadow-lg p-6">
               <h2 className="text-xl font-bold text-gray-900 mb-4">
@@ -470,6 +707,7 @@ export default function DeteksiContent() {
 
               {detectionMode === "camera" ? (
                 <>
+                  {/* CAMERA VIEW */}
                   <div className="relative bg-gray-900 rounded-xl overflow-hidden aspect-video mb-4">
                     <video
                       ref={videoRef}
@@ -478,7 +716,6 @@ export default function DeteksiContent() {
                       className={`w-full h-full object-cover ${!isCameraActive ? "hidden" : ""}`}
                       style={{ transform: "scaleX(-1)" }}
                     />
-
                     {!isCameraActive && (
                       <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
                         <svg
@@ -506,7 +743,7 @@ export default function DeteksiContent() {
                             <p className="text-2xl font-bold">{currentDetection}</p>
                           </div>
                           <div className="animate-pulse">
-                            <div className="w-3 h-3 bg-white rounded-full"></div>
+                            <div className="w-3 h-3 bg-white rounded-full" />
                           </div>
                         </div>
                       </div>
@@ -522,6 +759,7 @@ export default function DeteksiContent() {
 
                   <canvas ref={canvasRef} className="hidden" />
 
+                  {/* CAMERA CONTROLS */}
                   <div className="flex gap-3 mb-3">
                     {!isCameraActive ? (
                       <button
@@ -653,11 +891,11 @@ export default function DeteksiContent() {
                       <div className="text-sm text-teal-800">
                         <p className="font-semibold mb-1">Cara Penggunaan:</p>
                         <ol className="list-decimal list-inside space-y-1">
-                          <li>Klik tombol "Aktifkan Kamera" untuk memulai</li>
-                          <li>Klik "Mulai Deteksi Live" untuk deteksi otomatis secara real-time</li>
-                          <li>Posisikan tangan Anda dengan isyarat SIBI di depan kamera</li>
-                          <li>Hasil akan muncul otomatis di layar setiap 1.5 detik</li>
-                          <li>Klik "Simpan ke Riwayat" untuk menyimpan hasil deteksi</li>
+                          <li>Klik "Aktifkan Kamera" untuk memulai.</li>
+                          <li>Pilih model: Huruf (A–Z) atau Kata (102 SIBI).</li>
+                          <li>Klik "Mulai Deteksi Live" untuk deteksi berulang.</li>
+                          <li>Posisikan tangan Anda dengan isyarat SIBI di depan kamera.</li>
+                          <li>Gunakan "Simpan ke Riwayat" untuk menyimpan hasil terbaik.</li>
                         </ol>
                       </div>
                     </div>
@@ -665,6 +903,7 @@ export default function DeteksiContent() {
                 </>
               ) : (
                 <>
+                  {/* UPLOAD VIEW */}
                   <div className="relative bg-gray-100 rounded-xl overflow-hidden aspect-video mb-4 border-2 border-dashed border-gray-300">
                     {uploadedImage ? (
                       <div className="relative w-full h-full">
@@ -746,7 +985,19 @@ export default function DeteksiContent() {
                   {uploadedImage && (
                     <div className="mt-4 p-4 bg-teal-50 border border-teal-200 rounded-xl">
                       <div className="space-y-2">
-                        <p className="text-sm font-semibold text-teal-900">Hasil Deteksi:</p>
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-semibold text-teal-900">Hasil Deteksi:</p>
+                          {(useMockMode || autoMockMode) && (
+                            <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded-full font-medium">
+                              DEMO MODE
+                            </span>
+                          )}
+                          {!useMockMode && !autoMockMode && (
+                            <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">
+                              REAL BACKEND
+                            </span>
+                          )}
+                        </div>
                         {currentDetection ? (
                           <div className="bg-white rounded-lg p-3 border-2 border-teal-500">
                             <p className="text-lg font-bold text-teal-600">{currentDetection}</p>
@@ -776,10 +1027,11 @@ export default function DeteksiContent() {
                       <div className="text-sm text-teal-800">
                         <p className="font-semibold mb-1">Cara Penggunaan:</p>
                         <ol className="list-decimal list-inside space-y-1">
-                          <li>Klik "Pilih Foto" atau drag & drop gambar ke area upload</li>
-                          <li>Pastikan gambar menampilkan isyarat SIBI dengan jelas</li>
-                          <li>Klik "Deteksi Isyarat" untuk memulai analisis</li>
-                          <li>Lihat hasil deteksi di panel riwayat</li>
+                          <li>Klik "Pilih Foto" atau drag & drop gambar ke area upload.</li>
+                          <li>Pilih model: Huruf (A–Z) atau Kata (102 SIBI).</li>
+                          <li>Pastikan gambar menampilkan isyarat SIBI dengan jelas.</li>
+                          <li>Klik "Deteksi Isyarat" untuk memulai analisis.</li>
+                          <li>Lihat hasil di panel hasil & riwayat di sebelah kanan.</li>
                         </ol>
                       </div>
                     </div>
@@ -789,6 +1041,7 @@ export default function DeteksiContent() {
             </div>
           </div>
 
+          {/* RIGHT: HISTORY */}
           <div className="lg:col-span-1">
             <div className="bg-white rounded-2xl shadow-lg p-6 sticky top-24">
               <div className="flex items-center gap-2 mb-4">
@@ -839,9 +1092,7 @@ export default function DeteksiContent() {
                             <div className="flex-1 bg-gray-200 rounded-full h-2">
                               <div
                                 className="bg-teal-500 h-2 rounded-full"
-                                style={{
-                                  width: `${result.confidence * 100}%`,
-                                }}
+                                style={{ width: `${result.confidence * 100}%` }}
                               />
                             </div>
                             <span className="text-xs font-medium text-teal-600">
@@ -854,16 +1105,18 @@ export default function DeteksiContent() {
                             <div className="mt-2 pt-2 border-t border-gray-100">
                               <p className="text-xs text-gray-500 mb-1">Alternatif lain:</p>
                               <div className="space-y-1">
-                                {result.allPredictions.slice(1, 3).map((pred, idx) => (
+                                {result.allPredictions?.slice(1, 3).map((pred: { letter: string; confidence: number }, idx: number) => (
                                   <div key={idx} className="flex items-center gap-2 text-xs">
                                     <span className="text-gray-600">{pred.letter}</span>
                                     <div className="flex-1 bg-gray-100 rounded-full h-1">
                                       <div
                                         className="bg-gray-400 h-1 rounded-full"
-                                        style={{ width: `${pred.confidence}%` }}
+                                        style={{ width: `${pred.confidence * 100}%` }}
                                       />
                                     </div>
-                                    <span className="text-gray-500">{pred.confidence.toFixed(0)}%</span>
+                                    <span className="text-gray-500">
+                                      {pred.confidence != null ? (pred.confidence * 100).toFixed(0) : "-"}%
+                                    </span>
                                   </div>
                                 ))}
                               </div>
