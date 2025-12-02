@@ -31,7 +31,7 @@ export default function BerandaContent() {
 
           {/* Description */}
           <p className="text-lg md:text-xl text-gray-600 mb-10 max-w-3xl mx-auto leading-relaxed">
-            TemanIsyarat menggunakan teknologi machine learning canggih untuk mengenali dan menerjemahkan Bahasa
+            TemanIsyarat menggunakan deep learning untuk mengenali dan menerjemahkan Bahasa
             Isyarat Indonesia secara real-time.
           </p>
 
@@ -78,9 +78,9 @@ export default function BerandaContent() {
               <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-teal-400 to-orange-400 flex items-center justify-center text-white text-2xl font-bold mb-6">
                 02
               </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-3">Proses AI</h3>
+              <h3 className="text-xl font-bold text-gray-900 mb-3">Proses Deteksi Dengan CNN</h3>
               <p className="text-gray-600 leading-relaxed">
-                Model machine learning kami menganalisis isyarat dan mengidentifikasi makna yang terkandung.
+                Sistem ini menggunakan model Deep Learning berbasis Convolutional Neural Network (CNN) yang telah dilatih dengan ribuan data bahasa isyarat SIBI.
               </p>
             </div>
 
@@ -116,7 +116,7 @@ export default function BerandaContent() {
               </div>
               <h3 className="text-lg font-bold text-gray-900 mb-2">Deteksi Real-time</h3>
               <p className="text-sm text-gray-600 leading-relaxed">
-                Mengenali isyarat dengan kecepatan tinggi dan akurasi mengesankan menggunakan AI model terbaru.
+                Sistem dapat membaca gerakan tangan dari kamera dan menampilkan hasil deteksi secara instan.
               </p>
             </div>
 
@@ -132,9 +132,9 @@ export default function BerandaContent() {
                   />
                 </svg>
               </div>
-              <h3 className="text-lg font-bold text-gray-900 mb-2">Powered by AI</h3>
+              <h3 className="text-lg font-bold text-gray-900 mb-2">Powered by Deep Learning (CNN)</h3>
               <p className="text-sm text-gray-600 leading-relaxed">
-                Model machine learning yang telah dilatih dengan ribuan data isyarat untuk hasil terbaik.
+                Website ini menggunakan deep learning dengan arsitektur Convolutional Neural Network (CNN) dan dilatih menggunakan ribuan citra bahasa isyarat SIBI
               </p>
             </div>
 
